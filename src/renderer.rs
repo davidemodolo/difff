@@ -5,9 +5,9 @@ use crate::diff::{DiffRow, RowKind};
 // ── Color palette (GitHub dark) ───────────────────────────────────────────────
 
 const BG_BASE: &str = "#0d1117";
-const BG_ADDED: &str = "#0d4429";
-const BG_REMOVED: &str = "#67060c";
-const BG_MODIFIED: &str = "#341a00";
+const BG_ADDED: &str = "#0f4e30";
+const BG_REMOVED: &str = "#6e0a10";
+const BG_MODIFIED: &str = "#3d2000";
 const BG_FORMAT: &str = "#1c2128";
 const FG_FORMAT: &str = "#484f58";
 const FG_LINENUM: &str = "#6e7681";
@@ -210,7 +210,7 @@ pub fn global_css() -> String {
         textview {{
             background-color: {BG_BASE};
             color: #e6edf3;
-            font-family: "Cascadia Code", "Fira Code", "Jetbrains Mono", monospace;
+            font-family: "IBM Plex Mono", "JetBrains Mono", "Cascadia Code", monospace;
             font-size: 13px;
         }}
         textview text {{
@@ -218,7 +218,7 @@ pub fn global_css() -> String {
         }}
         .toolbar {{
             background-color: #161b22;
-            border-bottom: 1px solid #30363d;
+            border-bottom: 1px solid #58a6ff;
             padding: 6px 10px;
         }}
         .stats-bar {{
@@ -230,15 +230,19 @@ pub fn global_css() -> String {
             background: #21262d;
             color: #e6edf3;
             border: 1px solid #30363d;
-            border-radius: 6px;
+            border-left: 2px solid transparent;
             padding: 4px 10px;
         }}
         button:hover {{
-            background: #30363d;
-            border-color: #8b949e;
+            background: #21262d;
+            border-left: 2px solid #58a6ff;
+            border-top-color: #8b949e;
+            border-right-color: #8b949e;
+            border-bottom-color: #8b949e;
         }}
         button:active {{
-            background: #161b22;
+            background: {BG_BASE};
+            border-left: 2px solid #58a6ff;
         }}
         checkbutton {{
             color: #e6edf3;
@@ -246,7 +250,6 @@ pub fn global_css() -> String {
         checkbutton check {{
             background: #21262d;
             border: 1px solid #30363d;
-            border-radius: 3px;
         }}
         checkbutton:checked check {{
             background: #1f6feb;
@@ -259,16 +262,15 @@ pub fn global_css() -> String {
             color: #e6edf3;
             font-weight: bold;
         }}
-        .stat-added   {{ color: #3fb950; }}
-        .stat-removed {{ color: #f85149; }}
-        .stat-modified {{ color: #d29922; }}
-        .stat-format  {{ color: #8b949e; }}
+        .stat-added    {{ color: #3fb950; font-weight: 600; }}
+        .stat-removed  {{ color: #f85149; font-weight: 600; }}
+        .stat-modified {{ color: #e3b341; font-weight: 600; }}
+        .stat-format   {{ color: #8b949e; font-weight: 500; }}
         scrollbar {{
             background-color: #161b22;
         }}
         scrollbar slider {{
             background-color: #30363d;
-            border-radius: 4px;
             min-width: 6px;
             min-height: 6px;
         }}

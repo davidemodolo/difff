@@ -4,3 +4,5 @@
 *.orig.tar.*
 .cargo-ok
 **/*.rs.bk
+CLAUDE.md
+tasks/

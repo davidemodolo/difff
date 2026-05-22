@@ -277,8 +277,13 @@ fn char_diff_ranges(a: &str, b: &str) -> (CharRanges, CharRanges) {
     (left_hl, right_hl)
 }
 
-/// Push a range, merging with the last one if contiguous.
+/// Push a range, merging with the last one if contiguous.  Zero-width ranges are
+/// silently discarded — they can arise on Unicode boundaries and must never reach
+/// the renderer.
 fn merge_push(v: &mut Vec<(usize, usize)>, start: usize, end: usize) {
+    if start >= end {
+        return;
+    }
     if let Some(last) = v.last_mut() {
         if last.1 == start {
             last.1 = end;
