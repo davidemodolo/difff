@@ -1,0 +1,38 @@
+[package]
+name = "difff"
+version = "0.1.0"
+edition = "2021"
+description = "Fast side-by-side document diff viewer"
+license = "MIT"
+authors = ["Davide Modolo <davide.modolo98@gmail.com>"]
+
+[lib]
+name = "difff"
+path = "src/lib.rs"
+
+[[bin]]
+name = "difff"
+path = "src/main.rs"
+
+[dependencies]
+gtk4 = { version = "0.9", features = ["v4_14"] }
+similar = { version = "2.6", features = ["text"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[package.metadata.deb]
+maintainer = "Davide Modolo <davide.modolo98@gmail.com>"
+copyright = "2026 Davide Modolo"
+depends = "$auto, libgtk-4-1"
+section = "utils"
+priority = "optional"
+maintainer-scripts = "debian/"
+assets = [
+    ["target/release/difff", "usr/bin/", "755"],
+    ["assets/difff.desktop", "usr/share/applications/", "644"],
+    ["assets/difff.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+]

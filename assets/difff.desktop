@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=difff
+Comment=Fast side-by-side document diff viewer
+Exec=difff
+Icon=difff
+Terminal=false
+Type=Application
+Categories=Development;Utility;
+Keywords=diff;compare;files;text;code;
+StartupNotify=true
+StartupWMClass=difff
