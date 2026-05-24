@@ -227,11 +227,10 @@ print(
 )
 "#;
     let (_, stats) = process_diff(a, c);
-    // The lines containing the real content change stay as Removed/Added;
-    // everything else should be Format. No spurious Modified rows.
-    assert!(stats.added >= 1, "expected at least 1 added line: {stats:?}");
-    assert!(stats.removed >= 1, "expected at least 1 removed line: {stats:?}");
-    assert_eq!(stats.modified, 0, "unexpected Modified rows: {stats:?}");
+    // One content change (aple → apple) inside reformatted code shows as Modified.
+    assert!(stats.modified >= 1, "expected at least 1 modified line: {stats:?}");
+    assert_eq!(stats.added, 0, "unexpected added lines: {stats:?}");
+    assert_eq!(stats.removed, 0, "unexpected removed lines: {stats:?}");
     assert!(
         stats.format > 0,
         "expected format-only rows: {stats:?}"

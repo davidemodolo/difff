@@ -85,13 +85,6 @@ fn build_rows(text_a: &str, text_b: &str) -> Vec<DiffRow> {
     rows
 }
 
-/// Pair del/ins buffers into Modified rows, emit stragglers as Removed/Added.
-///
-/// When the common prefix equals the entirety of the shorter string (i.e. one
-/// is a pure prefix of the other), we intentionally **do not** pair them — that
-/// pattern signals a structural split (one-liner → multi-line), not a
-/// word-level modification.  Keeping those unpaired avoids misleading inline
-/// character highlights.
 fn flush(
     del_buf: &mut Vec<String>,
     ins_buf: &mut Vec<String>,
@@ -105,15 +98,6 @@ fn flush(
     for i in 0..max_pairs {
         let d = &del_buf[i];
         let ins = &ins_buf[i];
-
-        let common_len = d.chars().zip(ins.chars()).take_while(|(a, b)| a == b).count();
-        let shortest = d.len().min(ins.len());
-
-        // One-side pure prefix → structural formatting, not a real modification.
-        if common_len == shortest {
-            break;
-        }
-
         rows.push(DiffRow {
             kind: RowKind::Modified,
             left_num: Some(*left_num),
@@ -350,6 +334,23 @@ fn apply_semantic_normalization(rows: &mut [DiffRow]) {
                     rows[hunk_start + j].kind = RowKind::Format;
                 }
             }
+
+            // Cross-side pairing: when a hunk has dirty rows on only one side
+            // (Added with no left_text, or Removed with no right_text),
+            // convert them to Modified so stats reflect the change correctly.
+            // Rows already Modified with both sides stay as-is.
+            for j in 0..hunk_len {
+                if !row_clean[j] {
+                    let has_both = rows[hunk_start + j].left_text.is_some()
+                        && rows[hunk_start + j].right_text.is_some();
+                    if !has_both
+                        && rows[hunk_start + j].kind != RowKind::Equal
+                        && rows[hunk_start + j].kind != RowKind::Format
+                    {
+                        rows[hunk_start + j].kind = RowKind::Modified;
+                    }
+                }
+            }
         }
     }
 }
@@ -363,6 +364,9 @@ fn compute_char_diffs(rows: &mut [DiffRow]) {
         }
         let left = row.left_text.as_deref().unwrap_or("");
         let right = row.right_text.as_deref().unwrap_or("");
+        if left.is_empty() || right.is_empty() {
+            continue;
+        }
         let (lh, rh) = char_diff_ranges(left, right);
         row.left_highlights = lh;
         row.right_highlights = rh;

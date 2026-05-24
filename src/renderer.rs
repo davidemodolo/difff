@@ -4,23 +4,26 @@ use crate::diff::{DiffRow, RowKind};
 
 // ── Color palette ──────────────────────────────────────────────────────────────
 
-const BG_BASE: &str = "#0d1117";
-const BG_ADDED: &str = "#162b1d";
-const BG_REMOVED: &str = "#2b1118";
-const BG_MODIFIED: &str = "#2b2010";
-const BG_FORMAT: &str = "#0d1117";
-const FG_FORMAT: &str = "#30363d";
-const FG_LINENUM: &str = "#484f58";
-const FG_TEXT: &str = "#c9d1d9";
-const FG_ADDED_GUTTER: &str = "#3fb950";
-const FG_REMOVED_GUTTER: &str = "#f85149";
+const BG_BASE: &str = "#0a0a0e";
+const BG_SURFACE: &str = "#121218";
+const BG_ADDED: &str = "#0d1a14";
+const BG_REMOVED: &str = "#1a0f14";
+const BG_MODIFIED: &str = "#1a140f";
+const BG_FORMAT: &str = "#0a0a0e";
+const FG_FORMAT: &str = "#555560";
+const FG_LINENUM: &str = "#555565";
+const FG_TEXT: &str = "#d4d4dc";
+const FG_ADDED_GUTTER: &str = "#00cc88";
+const FG_REMOVED_GUTTER: &str = "#ee4466";
 #[allow(dead_code)]
-const FG_MODIFIED_GUTTER: &str = "#d29922";
-const BG_CHAR_DEL: &str = "#da3633";
-const BG_CHAR_INS: &str = "#238636";
+const FG_MODIFIED_GUTTER: &str = "#ee9900";
+const BG_CHAR_DEL: &str = "#cc3344";
+const BG_CHAR_INS: &str = "#00aa55";
 const FG_CHAR_HL: &str = "#ffffff";
-const FG_LINE_DEL: &str = "#ff7b72";
-const FG_LINE_INS: &str = "#7ee787";
+const FG_LINE_DEL: &str = "#ff6677";
+const FG_LINE_INS: &str = "#00dd88";
+
+const BORDER: &str = "#252530";
 
 // ── Line prefix ───────────────────────────────────────────────────────────────
 
@@ -58,14 +61,13 @@ pub fn populate_views(
     view_left: &TextView,
     view_right: &TextView,
     rows: &[DiffRow],
-    ignore_format: bool,
 ) {
     let table = make_tag_table();
     let buf_l = TextBuffer::new(Some(&table));
     let buf_r = TextBuffer::new(Some(&table));
 
-    fill_buffer(&buf_l, rows, Side::Left, ignore_format);
-    fill_buffer(&buf_r, rows, Side::Right, ignore_format);
+    fill_buffer(&buf_l, rows, Side::Left);
+    fill_buffer(&buf_r, rows, Side::Right);
 
     view_left.set_buffer(Some(&buf_l));
     view_right.set_buffer(Some(&buf_r));
@@ -97,10 +99,10 @@ fn make_tag_table() -> gtk4::TextTagTable {
     });
     add(TAG_LINENUM, &|t| {
         t.set_foreground_rgba(Some(&rgba(FG_LINENUM)));
-        t.set_size_points(11.0);
+        t.set_size_points(10.0);
     });
     add(TAG_MARKER, &|t| {
-        t.set_weight(700); // bold = 700
+        t.set_weight(700);
     });
     add(TAG_CHAR_DEL, &|t| {
         t.set_background_rgba(Some(&rgba(BG_CHAR_DEL)));
@@ -122,7 +124,7 @@ fn make_tag_table() -> gtk4::TextTagTable {
 
 // ── Buffer filling ────────────────────────────────────────────────────────────
 
-fn fill_buffer(buf: &TextBuffer, rows: &[DiffRow], side: Side, ignore_format: bool) {
+fn fill_buffer(buf: &TextBuffer, rows: &[DiffRow], side: Side) {
     buf.begin_irreversible_action();
     buf.set_text("");
 
@@ -134,11 +136,7 @@ fn fill_buffer(buf: &TextBuffer, rows: &[DiffRow], side: Side, ignore_format: bo
             Side::Right => (row.right_num, row.right_text.as_deref()),
         };
 
-        let display_text = if row.kind == RowKind::Format && ignore_format {
-            None
-        } else {
-            content
-        };
+        let display_text = content;
 
         let marker = gutter_marker(row, side);
         let line = format!(
@@ -152,8 +150,7 @@ fn fill_buffer(buf: &TextBuffer, rows: &[DiffRow], side: Side, ignore_format: bo
             buf.insert_at_cursor(&format!("{line}\n"));
         }
 
-        // Row-level background tag.
-        let row_tag = row_tag_name(row, side, ignore_format);
+        let row_tag = row_tag_name(row, side);
         if let Some(tag_name) = row_tag {
             let start = buf.iter_at_line(line_idx as i32).unwrap_or(buf.end_iter());
             let end = if is_last {
@@ -164,7 +161,6 @@ fn fill_buffer(buf: &TextBuffer, rows: &[DiffRow], side: Side, ignore_format: bo
             buf.apply_tag_by_name(tag_name, &start, &end);
         }
 
-        // Marker (+, -, ~) styling.
         if let Some(gutter_start) = buf.iter_at_line(line_idx as i32) {
             let mut marker_start = gutter_start;
             marker_start.forward_chars(1);
@@ -183,16 +179,14 @@ fn fill_buffer(buf: &TextBuffer, rows: &[DiffRow], side: Side, ignore_format: bo
             }
         }
 
-        // Line number styling.
         if let Some(gutter_start) = buf.iter_at_line(line_idx as i32) {
             let mut gutter_end = gutter_start;
             gutter_end.forward_chars(PREFIX_CHARS as i32);
             let mut gutter_begin = gutter_start;
-            gutter_begin.forward_chars(2); // skip marker + space
+            gutter_begin.forward_chars(2);
             buf.apply_tag_by_name(TAG_LINENUM, &gutter_begin, &gutter_end);
         }
 
-        // Content text styling for line-level additions/removals.
         if (row.kind == RowKind::Added && side == Side::Right)
             || (row.kind == RowKind::Removed && side == Side::Left)
         {
@@ -215,7 +209,6 @@ fn fill_buffer(buf: &TextBuffer, rows: &[DiffRow], side: Side, ignore_format: bo
             }
         }
 
-        // Char-level highlights (Modified rows only).
         if row.kind == RowKind::Modified && display_text.is_some() {
             let highlights = match side {
                 Side::Left => &row.left_highlights,
@@ -250,15 +243,14 @@ fn gutter_marker(row: &DiffRow, side: Side) -> char {
     }
 }
 
-fn row_tag_name(row: &DiffRow, side: Side, ignore_format: bool) -> Option<&'static str> {
+fn row_tag_name(row: &DiffRow, side: Side) -> Option<&'static str> {
     match (&row.kind, side) {
         (RowKind::Added, Side::Right) => Some(TAG_ADDED),
         (RowKind::Added, Side::Left) => None,
         (RowKind::Removed, Side::Left) => Some(TAG_REMOVED),
         (RowKind::Removed, Side::Right) => None,
         (RowKind::Modified, _) => Some(TAG_MODIFIED),
-        (RowKind::Format, _) if !ignore_format => Some(TAG_FORMAT),
-        (RowKind::Format, _) => None,
+        (RowKind::Format, _) => Some(TAG_FORMAT),
         _ => None,
     }
 }
@@ -286,117 +278,122 @@ pub fn global_css() -> String {
             background-color: {BG_BASE};
             color: {FG_TEXT};
             font-family: "JetBrains Mono", "Fira Code", "IBM Plex Mono", monospace;
-            font-size: 12pt;
-            line-height: 1.4;
+            font-size: 11pt;
+            line-height: 1.35;
         }}
         textview text {{
             background-color: transparent;
         }}
 
         .toolbar {{
-            background-color: #161b22;
-            border-bottom: 1px solid #21262d;
-            padding: 8px 12px;
-            min-height: 36px;
+            background-color: {r_surface};
+            border-bottom: 1px solid {r_border};
+            padding: 6px 10px;
+            min-height: 32px;
         }}
 
         .stats-bar {{
-            background-color: #0d1117;
-            border-bottom: 1px solid #21262d;
-            padding: 4px 14px;
-            min-height: 26px;
+            background-color: {BG_BASE};
+            border-bottom: 1px solid {r_border};
+            padding: 2px 10px;
+            min-height: 22px;
         }}
 
         .panel-header-left {{
-            background-color: {r_removed};
-            color: {FG_REMOVED_GUTTER};
-            padding: 3px 12px;
-            font-weight: 700;
-            font-size: 10pt;
-            border-bottom: 1px solid #21262d;
+            background-color: {r_surface};
+            color: {r_text};
+            padding: 2px 10px;
+            font-weight: 600;
+            font-size: 9.5pt;
+            font-family: "JetBrains Mono", "Fira Code", monospace;
+            border-bottom: 2px solid {FG_REMOVED_GUTTER};
         }}
 
         .panel-header-right {{
-            background-color: {r_added};
-            color: {FG_ADDED_GUTTER};
-            padding: 3px 12px;
-            font-weight: 700;
-            font-size: 10pt;
-            border-bottom: 1px solid #21262d;
+            background-color: {r_surface};
+            color: {r_text};
+            padding: 2px 10px;
+            font-weight: 600;
+            font-size: 9.5pt;
+            font-family: "JetBrains Mono", "Fira Code", monospace;
+            border-bottom: 2px solid {FG_ADDED_GUTTER};
         }}
         "#,
-        r_removed = rgba(BG_REMOVED),
-        r_added = rgba(BG_ADDED),
+        r_surface = rgba(BG_SURFACE),
+        r_border = rgba(BORDER),
+        r_text = rgba(FG_TEXT),
     ) + r#"
 
         button {
-            background: #21262d;
-            color: #c9d1d9;
-            border: 1px solid #30363d;
-            border-radius: 6px;
-            padding: 4px 12px;
-            font-size: 11pt;
-            min-height: 26px;
-            transition: background 0.15s ease, border-color 0.15s ease;
+            background: #1a1a22;
+            color: #d0d0d8;
+            border: 1px solid #2a2a35;
+            border-radius: 0;
+            padding: 3px 10px;
+            font-size: 10pt;
+            font-family: "JetBrains Mono", "Fira Code", monospace;
+            min-height: 24px;
+            letter-spacing: 0.5px;
         }
         button:hover {
-            background: #30363d;
-            border-color: #58a6ff;
+            background: #252530;
+            border-color: #555565;
         }
         button:active {
-            background: #1c2128;
-            border-color: #1f6feb;
+            background: #15151d;
+            border-color: #00cc88;
         }
 
         checkbutton {
-            color: #c9d1d9;
-            font-size: 11pt;
+            color: #aaaaaa;
+            font-size: 9.5pt;
+            font-family: "JetBrains Mono", "Fira Code", monospace;
         }
         checkbutton check {
-            background: #21262d;
-            border: 1px solid #30363d;
-            border-radius: 3px;
-            min-width: 15px;
-            min-height: 15px;
+            background: #1a1a22;
+            border: 1px solid #2a2a35;
+            border-radius: 0;
+            min-width: 14px;
+            min-height: 14px;
         }
         checkbutton:checked check {
-            background: #1f6feb;
-            border-color: #1f6feb;
+            background: #00cc88;
+            border-color: #00cc88;
         }
 
         label {
-            color: #8b949e;
+            color: #909098;
         }
         .filename-label {
-            color: #c9d1d9;
+            color: #d4d4dc;
             font-weight: 600;
-            font-size: 11pt;
+            font-size: 9.5pt;
+            font-family: "JetBrains Mono", "Fira Code", monospace;
         }
 
-        .stat-added    { color: #3fb950; font-weight: 600; font-size: 10pt; }
-        .stat-removed  { color: #f85149; font-weight: 600; font-size: 10pt; }
-        .stat-modified { color: #d29922; font-weight: 600; font-size: 10pt; }
-        .stat-format   { color: #6e7681; font-weight: 500; font-size: 10pt; }
-        .stat-chars    { color: #8b949e; font-size: 10pt; }
+        .stat-added    { color: #00cc88; font-weight: 700; font-size: 9pt; font-family: "JetBrains Mono", monospace; }
+        .stat-removed  { color: #ee4466; font-weight: 700; font-size: 9pt; font-family: "JetBrains Mono", monospace; }
+        .stat-modified { color: #ee9900; font-weight: 700; font-size: 9pt; font-family: "JetBrains Mono", monospace; }
+        .stat-format   { color: #6a6a70; font-weight: 500; font-size: 9pt; font-family: "JetBrains Mono", monospace; }
+        .stat-chars    { color: #888890; font-size: 9pt; font-family: "JetBrains Mono", monospace; }
 
         scrollbar {
-            background-color: #161b22;
+            background-color: #0a0a0e;
             border: none;
         }
         scrollbar slider {
-            background-color: #30363d;
-            border-radius: 4px;
-            min-width: 8px;
-            min-height: 8px;
+            background-color: #2a2a35;
+            border-radius: 0;
+            min-width: 6px;
+            min-height: 6px;
         }
         scrollbar slider:hover {
-            background-color: #484f58;
+            background-color: #3a3a48;
         }
 
         separator {
-            background-color: #21262d;
+            background-color: #252530;
             min-width: 1px;
         }
     "#
 }
-

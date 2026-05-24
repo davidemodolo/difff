@@ -1,7 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use gtk4::{gdk, gio, prelude::*};
+use gtk4::{gdk, gio, glib, prelude::*};
 
 use crate::diff::{process_diff, DiffRow, Stats};
 use crate::renderer::{populate_views, Side};
@@ -16,7 +16,6 @@ struct AppState {
     filename_b: String,
     rows: Vec<DiffRow>,
     stats: Stats,
-    ignore_format: bool,
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -66,23 +65,12 @@ pub fn build_ui(app: &gtk4::Application) {
     let spacer_left = gtk4::Box::builder().hexpand(true).build();
     let spacer_right = gtk4::Box::builder().hexpand(true).build();
 
-    // Center group: "Open Both…" + formatting toggle
     let btn_both = gtk4::Button::with_label("Open Both…");
-    let format_check = gtk4::CheckButton::builder()
-        .label("Ignore formatting")
-        .active(false)
-        .build();
-    let center_box = gtk4::Box::builder()
-        .orientation(gtk4::Orientation::Horizontal)
-        .spacing(8)
-        .build();
-    center_box.append(&btn_both);
-    center_box.append(&format_check);
 
     toolbar.append(&btn_left);
     toolbar.append(&label_left);
     toolbar.append(&spacer_left);
-    toolbar.append(&center_box);
+    toolbar.append(&btn_both);
     toolbar.append(&spacer_right);
     toolbar.append(&label_right);
     toolbar.append(&btn_right);
@@ -186,15 +174,23 @@ pub fn build_ui(app: &gtk4::Application) {
         });
     }
 
-    // ── Drag-and-drop ────────────────────────────────────────────────────────
-    setup_drop_target(&scroll_l, Side::Left, &window, &state, &view_l, &view_r,
+    // ── Drag-and-drop on each panel (with capture phase for Wayland) ────────
+    setup_drop_target(&left_panel, Side::Left, &window, &state, &view_l, &view_r,
                       &label_left, &label_right, &header_left, &header_right,
                       &lbl_added, &lbl_removed,
                       &lbl_modified, &lbl_format, &lbl_chars);
-    setup_drop_target(&scroll_r, Side::Right, &window, &state, &view_l, &view_r,
+    setup_drop_target(&right_panel, Side::Right, &window, &state, &view_l, &view_r,
                       &label_left, &label_right, &header_left, &header_right,
                       &lbl_added, &lbl_removed,
                       &lbl_modified, &lbl_format, &lbl_chars);
+
+    // ── Ctrl+V paste (clipboard file URIs) ──────────────────────────────────
+    setup_clipboard_paste(
+        &window, &state, &view_l, &view_r,
+        &label_left, &label_right, &header_left, &header_right,
+        &lbl_added, &lbl_removed,
+        &lbl_modified, &lbl_format, &lbl_chars,
+    );
 
     // ── File chooser buttons ─────────────────────────────────────────────────
     let connect_btn = |btn: &gtk4::Button, side: Side| {
@@ -248,22 +244,6 @@ pub fn build_ui(app: &gtk4::Application) {
         });
     }
 
-    // ── Formatting toggle ────────────────────────────────────────────────────
-    {
-        let state = state.clone();
-        let view_l = view_l.clone();
-        let view_r = view_r.clone();
-        format_check.connect_toggled(move |btn| {
-            let mut s = state.borrow_mut();
-            s.ignore_format = btn.is_active();
-            if !s.rows.is_empty() {
-                drop(s);
-                let s = state.borrow();
-                populate_views(&view_l, &view_r, &s.rows, s.ignore_format);
-            }
-        });
-    }
-
     window.present();
 }
 
@@ -275,10 +255,10 @@ fn make_panel() -> (gtk4::ScrolledWindow, gtk4::TextView) {
         .cursor_visible(false)
         .monospace(true)
         .wrap_mode(gtk4::WrapMode::None)
-        .left_margin(4)
-        .right_margin(4)
-        .top_margin(4)
-        .bottom_margin(4)
+        .left_margin(0)
+        .right_margin(0)
+        .top_margin(2)
+        .bottom_margin(2)
         .build();
 
     let scroll = gtk4::ScrolledWindow::builder()
@@ -416,7 +396,7 @@ fn load_file(
                     &lbl_format, &lbl_chars,
                 );
                 if !s.rows.is_empty() {
-                    populate_views(&view_l, &view_r, &s.rows, s.ignore_format);
+                    populate_views(&view_l, &view_r, &s.rows);
                 }
             }
         },
@@ -550,7 +530,7 @@ fn open_both_dialog(
 
 #[allow(clippy::too_many_arguments)]
 fn setup_drop_target(
-    widget: &gtk4::ScrolledWindow,
+    widget: &impl IsA<gtk4::Widget>,
     side: Side,
     window: &gtk4::ApplicationWindow,
     state: &Rc<RefCell<AppState>>,
@@ -566,14 +546,10 @@ fn setup_drop_target(
     lbl_format: &gtk4::Label,
     lbl_chars: &gtk4::Label,
 ) {
-    // Accept FileList (from Nautilus / Nemo).
-    let drop = gtk4::DropTarget::builder()
-        .actions(gdk::DragAction::COPY)
-        .preload(true)
-        .build();
-    drop.set_types(&[gdk::FileList::static_type()]);
+    let drop = gtk4::DropTarget::new(gdk::FileList::static_type(), gdk::DragAction::COPY);
+    drop.set_preload(true);
 
-    let window = window.clone();
+    let w = window.clone();
     let state = state.clone();
     let view_l = view_l.clone();
     let view_r = view_r.clone();
@@ -587,19 +563,177 @@ fn setup_drop_target(
     let lbl_format = lbl_format.clone();
     let lbl_chars = lbl_chars.clone();
 
-    drop.connect_enter(|_, _, _| gdk::DragAction::COPY);
-
     drop.connect_drop(move |_, value, _, _| {
-        let Ok(list) = value.get::<gdk::FileList>() else { return false; };
-        let Some(f) = list.files().into_iter().next() else { return false; };
-        load_file(
-            &f, side, &window, &state, &view_l, &view_r,
-            &label_left, &label_right, &header_left, &header_right,
-            &lbl_added, &lbl_removed,
-            &lbl_modified, &lbl_format, &lbl_chars,
-        );
-        true
+        let files = extract_files(&value);
+        if files.len() >= 2 {
+            load_file(&files[0], Side::Left, &w, &state, &view_l, &view_r,
+                      &label_left, &label_right, &header_left, &header_right,
+                      &lbl_added, &lbl_removed, &lbl_modified, &lbl_format, &lbl_chars);
+            load_file(&files[1], Side::Right, &w, &state, &view_l, &view_r,
+                      &label_left, &label_right, &header_left, &header_right,
+                      &lbl_added, &lbl_removed, &lbl_modified, &lbl_format, &lbl_chars);
+        } else if let Some(f) = files.first() {
+            load_file(f, side, &w, &state, &view_l, &view_r,
+                      &label_left, &label_right, &header_left, &header_right,
+                      &lbl_added, &lbl_removed, &lbl_modified, &lbl_format, &lbl_chars);
+        }
+        !files.is_empty()
     });
 
     widget.add_controller(drop);
+}
+
+// ── Ctrl+V clipboard paste ────────────────────────────────────────────────────
+
+#[allow(clippy::too_many_arguments)]
+fn setup_clipboard_paste(
+    window: &gtk4::ApplicationWindow,
+    state: &Rc<RefCell<AppState>>,
+    view_l: &gtk4::TextView,
+    view_r: &gtk4::TextView,
+    label_left: &gtk4::Label,
+    label_right: &gtk4::Label,
+    header_left: &gtk4::Label,
+    header_right: &gtk4::Label,
+    lbl_added: &gtk4::Label,
+    lbl_removed: &gtk4::Label,
+    lbl_modified: &gtk4::Label,
+    lbl_format: &gtk4::Label,
+    lbl_chars: &gtk4::Label,
+) {
+    let key_ctrl = gtk4::EventControllerKey::new();
+    key_ctrl.set_propagation_phase(gtk4::PropagationPhase::Capture);
+
+    let window_cb = window.clone();
+    let state = state.clone();
+    let view_l = view_l.clone();
+    let view_r = view_r.clone();
+    let label_left = label_left.clone();
+    let label_right = label_right.clone();
+    let header_left = header_left.clone();
+    let header_right = header_right.clone();
+    let lbl_added = lbl_added.clone();
+    let lbl_removed = lbl_removed.clone();
+    let lbl_modified = lbl_modified.clone();
+    let lbl_format = lbl_format.clone();
+    let lbl_chars = lbl_chars.clone();
+
+    key_ctrl.connect_key_pressed(move |_, key, _, modifier| {
+        if key == gdk::Key::v && modifier.contains(gdk::ModifierType::CONTROL_MASK) {
+            let clipboard = gdk::Display::default()
+                .expect("display")
+                .clipboard();
+
+            let state = state.clone();
+            let window = window_cb.clone();
+            let view_l = view_l.clone();
+            let view_r = view_r.clone();
+            let label_left = label_left.clone();
+            let label_right = label_right.clone();
+            let header_left = header_left.clone();
+            let header_right = header_right.clone();
+            let lbl_added = lbl_added.clone();
+            let lbl_removed = lbl_removed.clone();
+            let lbl_modified = lbl_modified.clone();
+            let lbl_format = lbl_format.clone();
+            let lbl_chars = lbl_chars.clone();
+
+            clipboard.read_text_async(
+                None::<&gio::Cancellable>,
+                move |result| {
+                    if let Ok(Some(text)) = result {
+                        let files = parse_clipboard_text(&text);
+                        if !files.is_empty() {
+                            load_files(&files, &window, &state, &view_l, &view_r,
+                                       &label_left, &label_right, &header_left, &header_right,
+                                       &lbl_added, &lbl_removed,
+                                       &lbl_modified, &lbl_format, &lbl_chars);
+                        }
+                    }
+                },
+            );
+            return glib::Propagation::Stop;
+        }
+        glib::Propagation::Proceed
+    });
+
+    window.add_controller(key_ctrl);
+}
+
+// ── Shared helpers ────────────────────────────────────────────────────────────
+
+/// Load files from a list: 2+ → left/right split, 1 → smart placement.
+fn load_files(
+    files: &[gio::File],
+    window: &gtk4::ApplicationWindow,
+    state: &Rc<RefCell<AppState>>,
+    view_l: &gtk4::TextView,
+    view_r: &gtk4::TextView,
+    label_left: &gtk4::Label,
+    label_right: &gtk4::Label,
+    header_left: &gtk4::Label,
+    header_right: &gtk4::Label,
+    lbl_added: &gtk4::Label,
+    lbl_removed: &gtk4::Label,
+    lbl_modified: &gtk4::Label,
+    lbl_format: &gtk4::Label,
+    lbl_chars: &gtk4::Label,
+) {
+    if files.len() >= 2 {
+        load_file(&files[0], Side::Left, window, state, view_l, view_r,
+                  label_left, label_right, header_left, header_right,
+                  lbl_added, lbl_removed, lbl_modified, lbl_format, lbl_chars);
+        load_file(&files[1], Side::Right, window, state, view_l, view_r,
+                  label_left, label_right, header_left, header_right,
+                  lbl_added, lbl_removed, lbl_modified, lbl_format, lbl_chars);
+    } else if let Some(f) = files.first() {
+        let s = state.borrow();
+        let side = if s.text_a.is_none() {
+            Side::Left
+        } else if s.text_b.is_none() {
+            Side::Right
+        } else {
+            Side::Left
+        };
+        drop(s);
+        load_file(f, side, window, state, view_l, view_r,
+                  label_left, label_right, header_left, header_right,
+                  lbl_added, lbl_removed, lbl_modified, lbl_format, lbl_chars);
+    }
+}
+
+/// Parse clipboard text: handles file:// URIs, plain paths, and GNOME's
+/// `x-special/gnome-copied-files` format.
+fn parse_clipboard_text(text: &str) -> Vec<gio::File> {
+    let mut files = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        // GNOME file manager prefix: "copy\nfile://..." or "cut\nfile://..."
+        let uri = trimmed.strip_prefix("copy\n")
+            .or_else(|| trimmed.strip_prefix("cut\n"))
+            .unwrap_or(trimmed);
+        if uri.starts_with("file://") {
+            files.push(gio::File::for_uri(uri));
+        } else {
+            files.push(gio::File::for_path(uri));
+        }
+    }
+    files
+}
+
+/// Extract files from a drop value (gdk::FileList on X11, String on Wayland).
+fn extract_files(value: &glib::Value) -> Vec<gio::File> {
+    if let Ok(list) = value.get::<gdk::FileList>() {
+        let files: Vec<_> = list.files().into_iter().collect();
+        if !files.is_empty() {
+            return files;
+        }
+    }
+    if let Ok(uris) = value.get::<String>() {
+        return parse_clipboard_text(&uris);
+    }
+    Vec::new()
 }
