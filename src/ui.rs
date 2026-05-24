@@ -114,10 +114,40 @@ pub fn build_ui(app: &gtk4::Application) {
         .build();
     root.append(&paned);
 
+    // Left panel wrapper
+    let left_panel = gtk4::Box::builder()
+        .orientation(gtk4::Orientation::Vertical)
+        .vexpand(true)
+        .build();
+
+    let header_left = gtk4::Label::builder()
+        .label("− Left")
+        .css_classes(vec!["panel-header-left"])
+        .xalign(0.0)
+        .build();
+    left_panel.append(&header_left);
+
     let (scroll_l, view_l) = make_panel();
+    left_panel.append(&scroll_l);
+
+    // Right panel wrapper
+    let right_panel = gtk4::Box::builder()
+        .orientation(gtk4::Orientation::Vertical)
+        .vexpand(true)
+        .build();
+
+    let header_right = gtk4::Label::builder()
+        .label("+ Right")
+        .css_classes(vec!["panel-header-right"])
+        .xalign(0.0)
+        .build();
+    right_panel.append(&header_right);
+
     let (scroll_r, view_r) = make_panel();
-    paned.set_start_child(Some(&scroll_l));
-    paned.set_end_child(Some(&scroll_r));
+    right_panel.append(&scroll_r);
+
+    paned.set_start_child(Some(&left_panel));
+    paned.set_end_child(Some(&right_panel));
 
     // Set initial pane position after the window has been allocated.
     let paned_c = paned.clone();
@@ -158,14 +188,15 @@ pub fn build_ui(app: &gtk4::Application) {
 
     // ── Drag-and-drop ────────────────────────────────────────────────────────
     setup_drop_target(&scroll_l, Side::Left, &window, &state, &view_l, &view_r,
-                      &label_left, &label_right, &lbl_added, &lbl_removed,
+                      &label_left, &label_right, &header_left, &header_right,
+                      &lbl_added, &lbl_removed,
                       &lbl_modified, &lbl_format, &lbl_chars);
     setup_drop_target(&scroll_r, Side::Right, &window, &state, &view_l, &view_r,
-                      &label_left, &label_right, &lbl_added, &lbl_removed,
+                      &label_left, &label_right, &header_left, &header_right,
+                      &lbl_added, &lbl_removed,
                       &lbl_modified, &lbl_format, &lbl_chars);
 
     // ── File chooser buttons ─────────────────────────────────────────────────
-    // Shared helper avoids duplicating the 11-widget clone block.
     let connect_btn = |btn: &gtk4::Button, side: Side| {
         let window = window.clone();
         let state = state.clone();
@@ -173,6 +204,8 @@ pub fn build_ui(app: &gtk4::Application) {
         let view_r = view_r.clone();
         let label_left = label_left.clone();
         let label_right = label_right.clone();
+        let header_left = header_left.clone();
+        let header_right = header_right.clone();
         let lbl_added = lbl_added.clone();
         let lbl_removed = lbl_removed.clone();
         let lbl_modified = lbl_modified.clone();
@@ -181,7 +214,8 @@ pub fn build_ui(app: &gtk4::Application) {
         btn.connect_clicked(move |_| {
             open_file_dialog(
                 &window, side, &state, &view_l, &view_r,
-                &label_left, &label_right, &lbl_added, &lbl_removed,
+                &label_left, &label_right, &header_left, &header_right,
+                &lbl_added, &lbl_removed,
                 &lbl_modified, &lbl_format, &lbl_chars,
             );
         });
@@ -197,6 +231,8 @@ pub fn build_ui(app: &gtk4::Application) {
         let view_r = view_r.clone();
         let label_left = label_left.clone();
         let label_right = label_right.clone();
+        let header_left = header_left.clone();
+        let header_right = header_right.clone();
         let lbl_added = lbl_added.clone();
         let lbl_removed = lbl_removed.clone();
         let lbl_modified = lbl_modified.clone();
@@ -205,7 +241,8 @@ pub fn build_ui(app: &gtk4::Application) {
         btn_both.connect_clicked(move |_| {
             open_both_dialog(
                 &window, &state, &view_l, &view_r,
-                &label_left, &label_right, &lbl_added, &lbl_removed,
+                &label_left, &label_right, &header_left, &header_right,
+                &lbl_added, &lbl_removed,
                 &lbl_modified, &lbl_format, &lbl_chars,
             );
         });
@@ -301,6 +338,8 @@ fn load_file(
     view_r: &gtk4::TextView,
     label_left: &gtk4::Label,
     label_right: &gtk4::Label,
+    header_left: &gtk4::Label,
+    header_right: &gtk4::Label,
     lbl_added: &gtk4::Label,
     lbl_removed: &gtk4::Label,
     lbl_modified: &gtk4::Label,
@@ -318,6 +357,8 @@ fn load_file(
     let view_r = view_r.clone();
     let label_left = label_left.clone();
     let label_right = label_right.clone();
+    let header_left = header_left.clone();
+    let header_right = header_right.clone();
     let lbl_added = lbl_added.clone();
     let lbl_removed = lbl_removed.clone();
     let lbl_modified = lbl_modified.clone();
@@ -358,6 +399,8 @@ fn load_file(
                     }
                     label_left.set_label(&s.filename_a);
                     label_right.set_label(&s.filename_b);
+                    header_left.set_label(&format!("− {}", s.filename_a));
+                    header_right.set_label(&format!("+ {}", s.filename_b));
 
                     if let (Some(a), Some(b)) = (&s.text_a, &s.text_b) {
                         let (rows, stats) = process_diff(a, b);
@@ -391,6 +434,8 @@ fn open_file_dialog(
     view_r: &gtk4::TextView,
     label_left: &gtk4::Label,
     label_right: &gtk4::Label,
+    header_left: &gtk4::Label,
+    header_right: &gtk4::Label,
     lbl_added: &gtk4::Label,
     lbl_removed: &gtk4::Label,
     lbl_modified: &gtk4::Label,
@@ -405,13 +450,15 @@ fn open_file_dialog(
         .modal(true)
         .build();
 
-    let window_ref = window.clone();  // borrowed by dialog.open()
-    let window_cb = window.clone();   // moved into callback closure
+    let window_ref = window.clone();
+    let window_cb = window.clone();
     let state = state.clone();
     let view_l = view_l.clone();
     let view_r = view_r.clone();
     let label_left = label_left.clone();
     let label_right = label_right.clone();
+    let header_left = header_left.clone();
+    let header_right = header_right.clone();
     let lbl_added = lbl_added.clone();
     let lbl_removed = lbl_removed.clone();
     let lbl_modified = lbl_modified.clone();
@@ -425,7 +472,8 @@ fn open_file_dialog(
             if let Ok(file) = result {
                 load_file(
                     &file, side, &window_cb, &state, &view_l, &view_r,
-                    &label_left, &label_right, &lbl_added, &lbl_removed,
+                    &label_left, &label_right, &header_left, &header_right,
+                    &lbl_added, &lbl_removed,
                     &lbl_modified, &lbl_format, &lbl_chars,
                 );
             }
@@ -443,6 +491,8 @@ fn open_both_dialog(
     view_r: &gtk4::TextView,
     label_left: &gtk4::Label,
     label_right: &gtk4::Label,
+    header_left: &gtk4::Label,
+    header_right: &gtk4::Label,
     lbl_added: &gtk4::Label,
     lbl_removed: &gtk4::Label,
     lbl_modified: &gtk4::Label,
@@ -454,13 +504,15 @@ fn open_both_dialog(
         .modal(true)
         .build();
 
-    let window_ref = window.clone();  // borrowed by dialog.open_multiple()
-    let window_cb = window.clone();   // moved into callback closure
+    let window_ref = window.clone();
+    let window_cb = window.clone();
     let state = state.clone();
     let view_l = view_l.clone();
     let view_r = view_r.clone();
     let label_left = label_left.clone();
     let label_right = label_right.clone();
+    let header_left = header_left.clone();
+    let header_right = header_right.clone();
     let lbl_added = lbl_added.clone();
     let lbl_removed = lbl_removed.clone();
     let lbl_modified = lbl_modified.clone();
@@ -472,20 +524,20 @@ fn open_both_dialog(
         None::<&gio::Cancellable>,
         move |result| {
             let Ok(model) = result else { return; };
-            // First selected file → left panel.
             if let Some(f) = model.item(0).and_then(|o| o.downcast::<gio::File>().ok()) {
                 load_file(
                     &f, Side::Left, &window_cb, &state, &view_l, &view_r,
-                    &label_left, &label_right, &lbl_added, &lbl_removed,
+                    &label_left, &label_right, &header_left, &header_right,
+                    &lbl_added, &lbl_removed,
                     &lbl_modified, &lbl_format, &lbl_chars,
                 );
             }
-            // Second selected file → right panel (only if ≥ 2 were selected).
             if model.n_items() >= 2 {
                 if let Some(f) = model.item(1).and_then(|o| o.downcast::<gio::File>().ok()) {
                     load_file(
                         &f, Side::Right, &window_cb, &state, &view_l, &view_r,
-                        &label_left, &label_right, &lbl_added, &lbl_removed,
+                        &label_left, &label_right, &header_left, &header_right,
+                        &lbl_added, &lbl_removed,
                         &lbl_modified, &lbl_format, &lbl_chars,
                     );
                 }
@@ -506,6 +558,8 @@ fn setup_drop_target(
     view_r: &gtk4::TextView,
     label_left: &gtk4::Label,
     label_right: &gtk4::Label,
+    header_left: &gtk4::Label,
+    header_right: &gtk4::Label,
     lbl_added: &gtk4::Label,
     lbl_removed: &gtk4::Label,
     lbl_modified: &gtk4::Label,
@@ -525,6 +579,8 @@ fn setup_drop_target(
     let view_r = view_r.clone();
     let label_left = label_left.clone();
     let label_right = label_right.clone();
+    let header_left = header_left.clone();
+    let header_right = header_right.clone();
     let lbl_added = lbl_added.clone();
     let lbl_removed = lbl_removed.clone();
     let lbl_modified = lbl_modified.clone();
@@ -538,7 +594,8 @@ fn setup_drop_target(
         let Some(f) = list.files().into_iter().next() else { return false; };
         load_file(
             &f, side, &window, &state, &view_l, &view_r,
-            &label_left, &label_right, &lbl_added, &lbl_removed,
+            &label_left, &label_right, &header_left, &header_right,
+            &lbl_added, &lbl_removed,
             &lbl_modified, &lbl_format, &lbl_chars,
         );
         true

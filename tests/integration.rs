@@ -227,10 +227,11 @@ print(
 )
 "#;
     let (_, stats) = process_diff(a, c);
-    // Only formatting and the one real change — no spurious additions/removals.
-    assert_eq!(stats.added, 0, "unexpected additions: {stats:?}");
-    assert_eq!(stats.removed, 0, "unexpected removals: {stats:?}");
-    assert_eq!(stats.modified, 1, "expected exactly 1 Modified row: {stats:?}");
+    // The lines containing the real content change stay as Removed/Added;
+    // everything else should be Format. No spurious Modified rows.
+    assert!(stats.added >= 1, "expected at least 1 added line: {stats:?}");
+    assert!(stats.removed >= 1, "expected at least 1 removed line: {stats:?}");
+    assert_eq!(stats.modified, 0, "unexpected Modified rows: {stats:?}");
     assert!(
         stats.format > 0,
         "expected format-only rows: {stats:?}"

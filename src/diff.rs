@@ -86,6 +86,12 @@ fn build_rows(text_a: &str, text_b: &str) -> Vec<DiffRow> {
 }
 
 /// Pair del/ins buffers into Modified rows, emit stragglers as Removed/Added.
+///
+/// When the common prefix equals the entirety of the shorter string (i.e. one
+/// is a pure prefix of the other), we intentionally **do not** pair them — that
+/// pattern signals a structural split (one-liner → multi-line), not a
+/// word-level modification.  Keeping those unpaired avoids misleading inline
+/// character highlights.
 fn flush(
     del_buf: &mut Vec<String>,
     ins_buf: &mut Vec<String>,
@@ -93,20 +99,33 @@ fn flush(
     left_num: &mut usize,
     right_num: &mut usize,
 ) {
-    let paired = del_buf.len().min(ins_buf.len());
+    let max_pairs = del_buf.len().min(ins_buf.len());
+    let mut paired = 0;
 
-    for i in 0..paired {
+    for i in 0..max_pairs {
+        let d = &del_buf[i];
+        let ins = &ins_buf[i];
+
+        let common_len = d.chars().zip(ins.chars()).take_while(|(a, b)| a == b).count();
+        let shortest = d.len().min(ins.len());
+
+        // One-side pure prefix → structural formatting, not a real modification.
+        if common_len == shortest {
+            break;
+        }
+
         rows.push(DiffRow {
             kind: RowKind::Modified,
             left_num: Some(*left_num),
             right_num: Some(*right_num),
-            left_text: Some(del_buf[i].clone()),
-            right_text: Some(ins_buf[i].clone()),
+            left_text: Some(d.clone()),
+            right_text: Some(ins.clone()),
             left_highlights: vec![],
             right_highlights: vec![],
         });
         *left_num += 1;
         *right_num += 1;
+        paired += 1;
     }
 
     for text in del_buf[paired..].iter().cloned() {
@@ -232,6 +251,22 @@ fn build_side(hunk: &[DiffRow], left_side: bool) -> (String, Vec<Option<usize>>)
     (text, char_to_row)
 }
 
+fn mark_dirty_range(
+    start: usize,
+    count: usize,
+    norm_map: &[usize],
+    char_to_row: &[Option<usize>],
+    row_clean: &mut [bool],
+) {
+    for j in start..start + count {
+        if let Some(&src) = norm_map.get(j) {
+            if let Some(Some(ri)) = char_to_row.get(src) {
+                row_clean[*ri] = false;
+            }
+        }
+    }
+}
+
 fn apply_semantic_normalization(rows: &mut [DiffRow]) {
     let n = rows.len();
     let mut i = 0;
@@ -276,23 +311,31 @@ fn apply_semantic_normalization(rows: &mut [DiffRow]) {
                 let n_chars = change.value().chars().count();
                 match change.tag() {
                     ChangeTag::Delete => {
-                        for j in lpos..lpos + n_chars {
-                            if let Some(&src) = left_map.get(j) {
-                                if let Some(Some(ri)) = left_char_to_row.get(src) {
-                                    row_clean[*ri] = false;
-                                }
-                            }
-                        }
+                        mark_dirty_range(
+                            lpos, n_chars, &left_map, &left_char_to_row, &mut row_clean,
+                        );
+                        let end = (rpos + n_chars).min(right_map.len());
+                        mark_dirty_range(
+                            rpos,
+                            end.saturating_sub(rpos),
+                            &right_map,
+                            &right_char_to_row,
+                            &mut row_clean,
+                        );
                         lpos += n_chars;
                     }
                     ChangeTag::Insert => {
-                        for j in rpos..rpos + n_chars {
-                            if let Some(&src) = right_map.get(j) {
-                                if let Some(Some(ri)) = right_char_to_row.get(src) {
-                                    row_clean[*ri] = false;
-                                }
-                            }
-                        }
+                        mark_dirty_range(
+                            rpos, n_chars, &right_map, &right_char_to_row, &mut row_clean,
+                        );
+                        let end = (lpos + n_chars).min(left_map.len());
+                        mark_dirty_range(
+                            lpos,
+                            end.saturating_sub(lpos),
+                            &left_map,
+                            &left_char_to_row,
+                            &mut row_clean,
+                        );
                         rpos += n_chars;
                     }
                     ChangeTag::Equal => {
