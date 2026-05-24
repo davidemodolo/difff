@@ -1,16 +1,25 @@
 mod diff;
+mod recents;
 mod renderer;
 mod ui;
+
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use gtk4::{gdk, glib, prelude::*};
 
 fn main() -> glib::ExitCode {
+    let recents = Rc::new(RefCell::new(recents::Recents::load()));
+
     let app = gtk4::Application::builder()
         .application_id("com.opencitylabs.difff")
         .build();
 
     app.connect_startup(|_| load_css());
-    app.connect_activate(ui::build_ui);
+    {
+        let recents = recents.clone();
+        app.connect_activate(move |app| ui::build_ui(app, &recents));
+    }
 
     app.run()
 }

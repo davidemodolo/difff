@@ -4,6 +4,7 @@ use std::rc::Rc;
 use gtk4::{gdk, gio, glib, prelude::*};
 
 use crate::diff::{process_diff, DiffRow, Stats};
+use crate::recents::Recents;
 use crate::renderer::{populate_views, Side};
 
 // ── Shared application state ──────────────────────────────────────────────────
@@ -16,12 +17,24 @@ struct AppState {
     filename_b: String,
     rows: Vec<DiffRow>,
     stats: Stats,
+    stack: Option<gtk4::Stack>,
+    recents: Option<Rc<RefCell<Recents>>>,
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
-pub fn build_ui(app: &gtk4::Application) {
+pub fn build_ui(app: &gtk4::Application, recents: &Rc<RefCell<Recents>>) {
     let state: Rc<RefCell<AppState>> = Rc::new(RefCell::new(AppState::default()));
+    let recents = recents.clone();
+
+    // ── Stack for welcome / diff pages ─────────────────────────────────────
+    let stack = gtk4::Stack::new();
+    stack.set_transition_type(gtk4::StackTransitionType::Crossfade);
+    {
+        let mut s = state.borrow_mut();
+        s.stack = Some(stack.clone());
+        s.recents = Some(recents.clone());
+    }
 
     // ── Window ──────────────────────────────────────────────────────────────
     let window = gtk4::ApplicationWindow::builder()
@@ -36,7 +49,7 @@ pub fn build_ui(app: &gtk4::Application) {
     let root = gtk4::Box::builder()
         .orientation(gtk4::Orientation::Vertical)
         .build();
-    window.set_child(Some(&root));
+    // Defer: root goes into a Stack below, after welcome page is built.
 
     // ── Toolbar ─────────────────────────────────────────────────────────────
     let toolbar = gtk4::Box::builder()
@@ -244,10 +257,185 @@ pub fn build_ui(app: &gtk4::Application) {
         });
     }
 
+    // ── Stack: welcome page + diff page ────────────────────────────────────
+    let welcome = build_welcome_page(&window, &state, &view_l, &view_r,
+                                     &label_left, &label_right,
+                                     &header_left, &header_right,
+                                     &lbl_added, &lbl_removed,
+                                     &lbl_modified, &lbl_format, &lbl_chars,
+                                     &recents);
+    stack.add_titled(&welcome, Some("welcome"), "Welcome");
+    stack.add_titled(&root, Some("diff"), "Diff");
+    stack.set_visible_child_name("welcome");
+    window.set_child(Some(&stack));
+
     window.present();
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+#[allow(clippy::too_many_arguments)]
+fn build_welcome_page(
+    window: &gtk4::ApplicationWindow,
+    state: &Rc<RefCell<AppState>>,
+    view_l: &gtk4::TextView,
+    view_r: &gtk4::TextView,
+    label_left: &gtk4::Label,
+    label_right: &gtk4::Label,
+    header_left: &gtk4::Label,
+    header_right: &gtk4::Label,
+    lbl_added: &gtk4::Label,
+    lbl_removed: &gtk4::Label,
+    lbl_modified: &gtk4::Label,
+    lbl_format: &gtk4::Label,
+    lbl_chars: &gtk4::Label,
+    recents: &Rc<RefCell<Recents>>,
+) -> gtk4::Box {
+    let page = gtk4::Box::builder()
+        .orientation(gtk4::Orientation::Vertical)
+        .halign(gtk4::Align::Center)
+        .valign(gtk4::Align::Center)
+        .css_classes(vec!["welcome-page"])
+        .build();
+
+    let title = gtk4::Label::new(Some("difff"));
+    title.set_css_classes(&["welcome-title"]);
+
+    let subtitle = gtk4::Label::new(Some("Side-by-side diff viewer"));
+    subtitle.set_css_classes(&["welcome-subtitle"]);
+
+    page.append(&title);
+    page.append(&subtitle);
+
+    // Spacer
+    let spacer1 = gtk4::Box::builder().height_request(24).build();
+    page.append(&spacer1);
+
+    // "Open Files…" button
+    let btn_open = gtk4::Button::with_label("Open Files…");
+    btn_open.set_css_classes(&["welcome-button"]);
+    {
+        let window = window.clone();
+        let state = state.clone();
+        let view_l = view_l.clone();
+        let view_r = view_r.clone();
+        let label_left = label_left.clone();
+        let label_right = label_right.clone();
+        let header_left = header_left.clone();
+        let header_right = header_right.clone();
+        let lbl_added = lbl_added.clone();
+        let lbl_removed = lbl_removed.clone();
+        let lbl_modified = lbl_modified.clone();
+        let lbl_format = lbl_format.clone();
+        let lbl_chars = lbl_chars.clone();
+        btn_open.connect_clicked(move |_| {
+            open_both_dialog(
+                &window, &state, &view_l, &view_r,
+                &label_left, &label_right, &header_left, &header_right,
+                &lbl_added, &lbl_removed,
+                &lbl_modified, &lbl_format, &lbl_chars,
+            );
+        });
+    }
+    page.append(&btn_open);
+
+    // Recent list (if any)
+    let recents_data = recents.borrow();
+    if !recents_data.is_empty() {
+        let spacer2 = gtk4::Box::builder().height_request(28).build();
+        page.append(&spacer2);
+
+        let sep = gtk4::Separator::new(gtk4::Orientation::Horizontal);
+        sep.set_css_classes(&["welcome-separator"]);
+        page.append(&sep);
+
+        let spacer3 = gtk4::Box::builder().height_request(12).build();
+        page.append(&spacer3);
+
+        let recent_label = gtk4::Label::new(Some("Recent"));
+        recent_label.set_css_classes(&["welcome-section-label"]);
+        recent_label.set_halign(gtk4::Align::Start);
+        page.append(&recent_label);
+
+        let list_box = gtk4::ListBox::new();
+        list_box.set_css_classes(&["recent-list"]);
+        list_box.set_selection_mode(gtk4::SelectionMode::None);
+
+        for pair in recents_data.list() {
+            let row = gtk4::Box::builder()
+                .orientation(gtk4::Orientation::Horizontal)
+                .spacing(6)
+                .css_classes(vec!["recent-row"])
+                .build();
+
+            let l = gtk4::Label::new(Some(&pair.left_name));
+            l.set_ellipsize(gtk4::pango::EllipsizeMode::Middle);
+            l.set_max_width_chars(32);
+            l.set_halign(gtk4::Align::Start);
+            l.set_hexpand(true);
+            row.append(&l);
+
+            let arrow = gtk4::Label::new(Some("↔"));
+            arrow.set_css_classes(&["recent-arrow"]);
+            row.append(&arrow);
+
+            let r = gtk4::Label::new(Some(&pair.right_name));
+            r.set_ellipsize(gtk4::pango::EllipsizeMode::Middle);
+            r.set_max_width_chars(32);
+            r.set_halign(gtk4::Align::End);
+            r.set_hexpand(true);
+            row.append(&r);
+
+            let left_path = pair.left.clone();
+            let right_path = pair.right.clone();
+            let window = window.clone();
+            let state = state.clone();
+            let view_l = view_l.clone();
+            let view_r = view_r.clone();
+            let label_left = label_left.clone();
+            let label_right = label_right.clone();
+            let header_left = header_left.clone();
+            let header_right = header_right.clone();
+            let lbl_added = lbl_added.clone();
+            let lbl_removed = lbl_removed.clone();
+            let lbl_modified = lbl_modified.clone();
+            let lbl_format = lbl_format.clone();
+            let lbl_chars = lbl_chars.clone();
+
+            let gesture = gtk4::GestureClick::new();
+            gesture.connect_released(move |_, _, _, _| {
+                load_file(
+                    &gio::File::for_path(&left_path), Side::Left,
+                    &window, &state, &view_l, &view_r,
+                    &label_left, &label_right, &header_left, &header_right,
+                    &lbl_added, &lbl_removed,
+                    &lbl_modified, &lbl_format, &lbl_chars,
+                );
+                load_file(
+                    &gio::File::for_path(&right_path), Side::Right,
+                    &window, &state, &view_l, &view_r,
+                    &label_left, &label_right, &header_left, &header_right,
+                    &lbl_added, &lbl_removed,
+                    &lbl_modified, &lbl_format, &lbl_chars,
+                );
+            });
+            row.add_controller(gesture);
+
+            list_box.append(&row);
+        }
+
+        let scroll = gtk4::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk4::PolicyType::Never)
+            .vscrollbar_policy(gtk4::PolicyType::Automatic)
+            .child(&list_box)
+            .build();
+        scroll.set_max_content_height(300);
+        page.append(&scroll);
+    }
+    drop(recents_data);
+
+    page
+}
 
 fn make_panel() -> (gtk4::ScrolledWindow, gtk4::TextView) {
     let view = gtk4::TextView::builder()
@@ -386,6 +574,12 @@ fn load_file(
                         let (rows, stats) = process_diff(a, b);
                         s.rows = rows;
                         s.stats = stats;
+                        if let Some(ref recents) = s.recents {
+                            recents.borrow_mut().add(&s.filename_a, &s.filename_b);
+                        }
+                    }
+                    if let Some(ref stack) = s.stack {
+                        stack.set_visible_child_name("diff");
                     }
                 }
                 // Always update stats — even when rows is empty (identical files

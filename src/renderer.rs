@@ -395,5 +395,59 @@ pub fn global_css() -> String {
             background-color: #252530;
             min-width: 1px;
         }
+
+        .welcome-page {
+            background-color: #0a0a0e;
+            padding: 40px 60px;
+        }
+        .welcome-title {
+            font-size: 28pt;
+            font-weight: 800;
+            color: #00cc88;
+            font-family: "JetBrains Mono", "Fira Code", monospace;
+        }
+        .welcome-subtitle {
+            font-size: 11pt;
+            color: #6a6a75;
+            font-family: "JetBrains Mono", "Fira Code", monospace;
+        }
+        .welcome-button {
+            font-size: 12pt;
+            padding: 8px 28px;
+            min-height: 36px;
+            letter-spacing: 1px;
+        }
+        .welcome-section-label {
+            font-size: 9pt;
+            font-weight: 600;
+            color: #5a5a68;
+            font-family: "JetBrains Mono", "Fira Code", monospace;
+            margin-bottom: 6px;
+        }
+        .welcome-separator {
+            min-height: 1px;
+            background-color: #252530;
+        }
+        .recent-list {
+            background: transparent;
+        }
+        .recent-row {
+            background: #121218;
+            border: 1px solid #252530;
+            border-radius: 0;
+            padding: 8px 14px;
+            margin: 1px 0;
+            color: #c8c8d0;
+            font-family: "JetBrains Mono", "Fira Code", monospace;
+            font-size: 10pt;
+        }
+        .recent-row:hover {
+            background: #1a1a28;
+            border-color: #00cc88;
+        }
+        .recent-arrow {
+            color: #5a5a68;
+            font-size: 10pt;
+        }
     "#
 }
