@@ -432,24 +432,30 @@ pub fn global_css() -> String {
         .recent-list {
             background: transparent;
         }
-        .recent-row {
-            background: #121218;
-            border: 1px solid #252530;
-            border-radius: 0;
-            padding: 8px 14px;
-            min-height: 34px;
+        .recent-list {
+            background: transparent;
         }
-        .recent-row label {
+        .recent-list row {
+            background: #1a1a28;
+            border-bottom: 1px solid #252530;
+            padding: 0;
+        }
+        .recent-list row:last-child {
+            border-bottom: none;
+        }
+        .recent-list row:hover {
+            background: #252540;
+        }
+        .recent-list row label {
             color: #c8c8d0;
             font-family: "JetBrains Mono", "Fira Code", monospace;
             font-size: 10pt;
         }
-        .recent-row:hover {
-            background: #1a1a28;
-            border-color: #00cc88;
+        .recent-row {
+            padding: 6px 14px;
         }
         .recent-arrow {
-            color: #5a5a68;
+            color: #7a7a88;
             font-size: 10pt;
         }
     "#
