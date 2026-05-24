@@ -342,6 +342,9 @@ fn build_welcome_page(
     // Recent list (if any)
     let recents_data = recents.borrow();
     if !recents_data.is_empty() {
+        let pairs: Vec<_> = recents_data.list().iter().cloned().collect();
+        drop(recents_data);
+
         let spacer2 = gtk4::Box::builder().height_request(28).build();
         page.append(&spacer2);
 
@@ -359,9 +362,9 @@ fn build_welcome_page(
 
         let list_box = gtk4::ListBox::new();
         list_box.set_css_classes(&["recent-list"]);
-        list_box.set_selection_mode(gtk4::SelectionMode::None);
+        list_box.set_selection_mode(gtk4::SelectionMode::Single);
 
-        for pair in recents_data.list() {
+        for pair in &pairs {
             let row = gtk4::Box::builder()
                 .orientation(gtk4::Orientation::Horizontal)
                 .spacing(6)
@@ -386,8 +389,10 @@ fn build_welcome_page(
             r.set_hexpand(true);
             row.append(&r);
 
-            let left_path = pair.left.clone();
-            let right_path = pair.right.clone();
+            list_box.append(&row);
+        }
+
+        {
             let window = window.clone();
             let state = state.clone();
             let view_l = view_l.clone();
@@ -401,27 +406,25 @@ fn build_welcome_page(
             let lbl_modified = lbl_modified.clone();
             let lbl_format = lbl_format.clone();
             let lbl_chars = lbl_chars.clone();
-
-            let gesture = gtk4::GestureClick::new();
-            gesture.connect_released(move |_, _, _, _| {
-                load_file(
-                    &gio::File::for_path(&left_path), Side::Left,
-                    &window, &state, &view_l, &view_r,
-                    &label_left, &label_right, &header_left, &header_right,
-                    &lbl_added, &lbl_removed,
-                    &lbl_modified, &lbl_format, &lbl_chars,
-                );
-                load_file(
-                    &gio::File::for_path(&right_path), Side::Right,
-                    &window, &state, &view_l, &view_r,
-                    &label_left, &label_right, &header_left, &header_right,
-                    &lbl_added, &lbl_removed,
-                    &lbl_modified, &lbl_format, &lbl_chars,
-                );
+            list_box.connect_row_activated(move |_, row| {
+                let idx = row.index() as usize;
+                if let Some(pair) = pairs.get(idx) {
+                    load_file(
+                        &gio::File::for_path(&pair.left), Side::Left,
+                        &window, &state, &view_l, &view_r,
+                        &label_left, &label_right, &header_left, &header_right,
+                        &lbl_added, &lbl_removed,
+                        &lbl_modified, &lbl_format, &lbl_chars,
+                    );
+                    load_file(
+                        &gio::File::for_path(&pair.right), Side::Right,
+                        &window, &state, &view_l, &view_r,
+                        &label_left, &label_right, &header_left, &header_right,
+                        &lbl_added, &lbl_removed,
+                        &lbl_modified, &lbl_format, &lbl_chars,
+                    );
+                }
             });
-            row.add_controller(gesture);
-
-            list_box.append(&row);
         }
 
         let scroll = gtk4::ScrolledWindow::builder()
@@ -431,8 +434,9 @@ fn build_welcome_page(
             .build();
         scroll.set_max_content_height(300);
         page.append(&scroll);
+    } else {
+        drop(recents_data);
     }
-    drop(recents_data);
 
     page
 }
