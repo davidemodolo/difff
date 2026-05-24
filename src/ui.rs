@@ -370,37 +370,11 @@ fn build_welcome_page(
         recent_label.set_halign(gtk4::Align::Start);
         page.append(&recent_label);
 
-        let list_box = gtk4::ListBox::new();
-        list_box.set_css_classes(&["recent-list"]);
-        list_box.set_selection_mode(gtk4::SelectionMode::Single);
-
-        for pair in &pairs {
-            let row = gtk4::Box::builder()
-                .orientation(gtk4::Orientation::Horizontal)
-                .spacing(6)
-                .css_classes(vec!["recent-row"])
-                .build();
-
-            let l = gtk4::Label::new(Some(&pair.left_name));
-            l.set_ellipsize(gtk4::pango::EllipsizeMode::Middle);
-            l.set_max_width_chars(32);
-            l.set_halign(gtk4::Align::Start);
-            l.set_hexpand(true);
-            row.append(&l);
-
-            let arrow = gtk4::Label::new(Some("↔"));
-            arrow.set_css_classes(&["recent-arrow"]);
-            row.append(&arrow);
-
-            let r = gtk4::Label::new(Some(&pair.right_name));
-            r.set_ellipsize(gtk4::pango::EllipsizeMode::Middle);
-            r.set_max_width_chars(32);
-            r.set_halign(gtk4::Align::End);
-            r.set_hexpand(true);
-            row.append(&r);
-
-            list_box.append(&row);
-        }
+        let list = gtk4::Box::builder()
+            .orientation(gtk4::Orientation::Vertical)
+            .spacing(2)
+            .css_classes(vec!["recent-list"])
+            .build();
 
         {
             let window = window.clone();
@@ -416,31 +390,77 @@ fn build_welcome_page(
             let lbl_modified = lbl_modified.clone();
             let lbl_format = lbl_format.clone();
             let lbl_chars = lbl_chars.clone();
-            list_box.connect_row_activated(move |_, row| {
-                let idx = row.index() as usize;
-                if let Some(pair) = pairs.get(idx) {
+
+            for pair in &pairs {
+                let row = gtk4::Box::builder()
+                    .orientation(gtk4::Orientation::Horizontal)
+                    .spacing(6)
+                    .build();
+
+                let l = gtk4::Label::new(Some(&pair.left_name));
+                l.set_ellipsize(gtk4::pango::EllipsizeMode::Middle);
+                l.set_max_width_chars(32);
+                l.set_halign(gtk4::Align::Start);
+                l.set_hexpand(true);
+                row.append(&l);
+
+                let arrow = gtk4::Label::new(Some("↔"));
+                arrow.set_css_classes(&["recent-arrow"]);
+                row.append(&arrow);
+
+                let r = gtk4::Label::new(Some(&pair.right_name));
+                r.set_ellipsize(gtk4::pango::EllipsizeMode::Middle);
+                r.set_max_width_chars(32);
+                r.set_halign(gtk4::Align::End);
+                r.set_hexpand(true);
+                row.append(&r);
+
+                let btn = gtk4::Button::builder()
+                    .css_classes(vec!["recent-row"])
+                    .child(&row)
+                    .build();
+
+                let left_path = pair.left.clone();
+                let right_path = pair.right.clone();
+                let window = window.clone();
+                let state = state.clone();
+                let view_l = view_l.clone();
+                let view_r = view_r.clone();
+                let label_left = label_left.clone();
+                let label_right = label_right.clone();
+                let header_left = header_left.clone();
+                let header_right = header_right.clone();
+                let lbl_added = lbl_added.clone();
+                let lbl_removed = lbl_removed.clone();
+                let lbl_modified = lbl_modified.clone();
+                let lbl_format = lbl_format.clone();
+                let lbl_chars = lbl_chars.clone();
+
+                btn.connect_clicked(move |_| {
                     load_file(
-                        &gio::File::for_path(&pair.left), Side::Left,
+                        &gio::File::for_path(&left_path), Side::Left,
                         &window, &state, &view_l, &view_r,
                         &label_left, &label_right, &header_left, &header_right,
                         &lbl_added, &lbl_removed,
                         &lbl_modified, &lbl_format, &lbl_chars,
                     );
                     load_file(
-                        &gio::File::for_path(&pair.right), Side::Right,
+                        &gio::File::for_path(&right_path), Side::Right,
                         &window, &state, &view_l, &view_r,
                         &label_left, &label_right, &header_left, &header_right,
                         &lbl_added, &lbl_removed,
                         &lbl_modified, &lbl_format, &lbl_chars,
                     );
-                }
-            });
+                });
+
+                list.append(&btn);
+            }
         }
 
         let scroll = gtk4::ScrolledWindow::builder()
             .hscrollbar_policy(gtk4::PolicyType::Never)
             .vscrollbar_policy(gtk4::PolicyType::Automatic)
-            .child(&list_box)
+            .child(&list)
             .build();
         scroll.set_max_content_height(300);
         page.append(&scroll);
