@@ -41,10 +41,6 @@ impl Recents {
         &self.pairs
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.pairs.is_empty()
-    }
-
     pub fn add(&mut self, left: &str, right: &str) {
         self.pairs.retain(|p| p.left != left || p.right != right);
         self.pairs.insert(
@@ -149,7 +145,7 @@ mod tests {
         let path = test_path("add_reload");
 
         let mut r = Recents::from_file(path.clone());
-        assert!(r.is_empty());
+        assert!(r.list().is_empty());
 
         r.add("/home/u/a.py", "/home/u/b.py");
         assert_eq!(r.list().len(), 1);

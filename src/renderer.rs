@@ -427,23 +427,28 @@ pub fn global_css() -> String {
         .welcome-separator {
             min-height: 1px;
             background-color: #252530;
+            margin: 8px 0;
         }
         .recent-list {
             background: transparent;
         }
-        .recent-row {
+        .recent-list row {
             background: #121218;
             border: 1px solid #252530;
             border-radius: 0;
-            padding: 8px 14px;
             margin: 1px 0;
+            padding: 0;
+        }
+        .recent-list row:hover,
+        .recent-list row:selected {
+            background: #1a1a28;
+            border-color: #00cc88;
+        }
+        .recent-row {
+            padding: 8px 14px;
             color: #c8c8d0;
             font-family: "JetBrains Mono", "Fira Code", monospace;
             font-size: 10pt;
-        }
-        .recent-row:hover {
-            background: #1a1a28;
-            border-color: #00cc88;
         }
         .recent-arrow {
             color: #5a5a68;

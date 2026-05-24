@@ -15,6 +15,8 @@ struct AppState {
     text_b: Option<String>,
     filename_a: String,
     filename_b: String,
+    path_a: String,
+    path_b: String,
     rows: Vec<DiffRow>,
     stats: Stats,
     stack: Option<gtk4::Stack>,
@@ -341,8 +343,16 @@ fn build_welcome_page(
 
     // Recent list (if any)
     let recents_data = recents.borrow();
-    if !recents_data.is_empty() {
-        let pairs: Vec<_> = recents_data.list().iter().cloned().collect();
+    let valid_pairs: Vec<_> = recents_data
+        .list()
+        .iter()
+        .filter(|p| {
+            std::path::Path::new(&p.left).exists() && std::path::Path::new(&p.right).exists()
+        })
+        .cloned()
+        .collect();
+    if !valid_pairs.is_empty() {
+        let pairs = valid_pairs;
         drop(recents_data);
 
         let spacer2 = gtk4::Box::builder().height_request(28).build();
@@ -522,6 +532,10 @@ fn load_file(
         .basename()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|| "unknown".to_owned());
+    let full_path = file
+        .path()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| filename.clone());
 
     let window = window.clone();
     let state = state.clone();
@@ -563,10 +577,12 @@ fn load_file(
                         Side::Left => {
                             s.text_a = Some(text);
                             s.filename_a = filename.clone();
+                            s.path_a = full_path;
                         }
                         Side::Right => {
                             s.text_b = Some(text);
                             s.filename_b = filename.clone();
+                            s.path_b = full_path;
                         }
                     }
                     label_left.set_label(&s.filename_a);
@@ -579,7 +595,7 @@ fn load_file(
                         s.rows = rows;
                         s.stats = stats;
                         if let Some(ref recents) = s.recents {
-                            recents.borrow_mut().add(&s.filename_a, &s.filename_b);
+                            recents.borrow_mut().add(&s.path_a, &s.path_b);
                         }
                     }
                     if let Some(ref stack) = s.stack {
