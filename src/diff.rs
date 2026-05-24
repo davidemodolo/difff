@@ -144,46 +144,92 @@ fn flush(
 /// Collapse whitespace (including newlines) inside balanced brackets to a
 /// single space, leave everything else untouched.  Mismatched brackets are
 /// handled gracefully via saturating arithmetic.
+#[allow(dead_code)]
 pub fn semantic_normalize(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut depth: u32 = 0;
-    let mut chars = text.chars().peekable();
+    semantic_normalize_with_map(text).0
+}
 
-    while let Some(ch) = chars.next() {
+/// Like `semantic_normalize` but also returns a vector mapping each output
+/// character position back to its source byte offset in the input string.
+fn semantic_normalize_with_map(text: &str) -> (String, Vec<usize>) {
+    let mut out = String::with_capacity(text.len());
+    let mut map = Vec::with_capacity(text.len());
+    let mut depth: u32 = 0;
+    let mut chars = text.char_indices().peekable();
+
+    while let Some((src, ch)) = chars.next() {
         match ch {
             '(' | '[' | '{' => {
                 depth += 1;
                 out.push(ch);
+                map.push(src);
             }
             ')' | ']' | '}' => {
                 depth = depth.saturating_sub(1);
-                // Trim trailing space before the closing bracket.
                 if out.ends_with(' ') {
                     out.pop();
+                    map.pop();
                 }
                 out.push(ch);
+                map.push(src);
             }
-            c if c.is_whitespace() && depth > 0 => {
-                // Eat the entire whitespace run.
-                while chars.peek().is_some_and(|p| p.is_whitespace()) {
+            c if c.is_whitespace() => {
+                while chars.peek().is_some_and(|(_, p)| p.is_whitespace()) {
                     chars.next();
                 }
-                // No space right after an opener or right before a closer.
                 let after_opener = out
                     .chars()
                     .last()
                     .is_some_and(|p| matches!(p, '(' | '[' | '{'));
                 let before_closer = chars
                     .peek()
-                    .is_some_and(|p| matches!(p, ')' | ']' | '}'));
+                    .is_some_and(|(_, p)| matches!(p, ')' | ']' | '}'));
                 if !after_opener && !before_closer {
                     out.push(' ');
+                    map.push(src);
                 }
             }
-            c => out.push(c),
+            '"' if depth > 0 => {
+                out.push('\'');
+                map.push(src);
+            }
+            c => {
+                out.push(c);
+                map.push(src);
+            }
         }
     }
-    out
+    (out, map)
+}
+
+/// Build a concatenated string from one side (left or right) of a hunk, plus a
+/// byte-index→row-index lookup table for mapping normalized positions back to
+/// rows.  `char_to_row[i]` is `Some(row_idx)` if the byte at position `i`
+/// belongs to that row, or `None` for the `\n` separators between rows.
+fn build_side(hunk: &[DiffRow], left_side: bool) -> (String, Vec<Option<usize>>) {
+    let mut text = String::new();
+    let mut char_to_row: Vec<Option<usize>> = Vec::new();
+
+    for (row_idx, row) in hunk.iter().enumerate() {
+        let opt = if left_side {
+            row.left_text.as_deref()
+        } else {
+            row.right_text.as_deref()
+        };
+        if let Some(content) = opt {
+            if !text.is_empty() {
+                text.push('\n');
+                char_to_row.push(None);
+            }
+            let start = text.len();
+            text.push_str(content);
+            for _ in start..text.len() {
+                char_to_row.push(Some(row_idx));
+            }
+        }
+    }
+
+    (text, char_to_row)
 }
 
 fn apply_semantic_normalization(rows: &mut [DiffRow]) {
@@ -196,34 +242,69 @@ fn apply_semantic_normalization(rows: &mut [DiffRow]) {
             continue;
         }
 
-        // Collect the extent of this change hunk.
         let hunk_start = i;
         while i < n && rows[i].kind != RowKind::Equal {
             i += 1;
         }
         let hunk_end = i;
+        let hunk = &rows[hunk_start..hunk_end];
 
-        let left_text: String = rows[hunk_start..hunk_end]
-            .iter()
-            .filter_map(|r| r.left_text.as_deref())
-            .collect::<Vec<_>>()
-            .join("\n");
+        let (left_concat, left_char_to_row) = build_side(hunk, true);
+        let (right_concat, right_char_to_row) = build_side(hunk, false);
 
-        let right_text: String = rows[hunk_start..hunk_end]
-            .iter()
-            .filter_map(|r| r.right_text.as_deref())
-            .collect::<Vec<_>>()
-            .join("\n");
+        if left_concat.is_empty() || right_concat.is_empty() {
+            continue;
+        }
 
-        // Only flag as format-only when both sides are non-empty (a pure
-        // addition or deletion can never be formatting-only).
-        if !left_text.is_empty()
-            && !right_text.is_empty()
-            && semantic_normalize(&left_text) == semantic_normalize(&right_text)
-        {
+        let (left_norm, left_map) = semantic_normalize_with_map(&left_concat);
+        let (right_norm, right_map) = semantic_normalize_with_map(&right_concat);
+
+        if left_norm == right_norm {
             for row in &mut rows[hunk_start..hunk_end] {
                 if row.kind != RowKind::Equal {
                     row.kind = RowKind::Format;
+                }
+            }
+        } else {
+            let diff = TextDiff::from_chars(&left_norm, &right_norm);
+            let hunk_len = hunk_end - hunk_start;
+            let mut row_clean = vec![true; hunk_len];
+            let mut lpos: usize = 0;
+            let mut rpos: usize = 0;
+
+            for change in diff.iter_all_changes() {
+                let n_chars = change.value().chars().count();
+                match change.tag() {
+                    ChangeTag::Delete => {
+                        for j in lpos..lpos + n_chars {
+                            if let Some(&src) = left_map.get(j) {
+                                if let Some(Some(ri)) = left_char_to_row.get(src) {
+                                    row_clean[*ri] = false;
+                                }
+                            }
+                        }
+                        lpos += n_chars;
+                    }
+                    ChangeTag::Insert => {
+                        for j in rpos..rpos + n_chars {
+                            if let Some(&src) = right_map.get(j) {
+                                if let Some(Some(ri)) = right_char_to_row.get(src) {
+                                    row_clean[*ri] = false;
+                                }
+                            }
+                        }
+                        rpos += n_chars;
+                    }
+                    ChangeTag::Equal => {
+                        lpos += n_chars;
+                        rpos += n_chars;
+                    }
+                }
+            }
+
+            for (j, clean) in row_clean.iter().enumerate() {
+                if *clean && rows[hunk_start + j].kind != RowKind::Equal {
+                    rows[hunk_start + j].kind = RowKind::Format;
                 }
             }
         }
@@ -440,10 +521,15 @@ mod tests {
         let a = "foo(a, b)\n";
         let b = "foo(\n  a,\n  x\n)\n";
         let (rows, _) = process_diff(a, b);
-        // The argument changed (b → x), so this must NOT be format-only.
+        // The argument changed (b → x), so at least one row must stay non-format.
         assert!(
-            rows.iter().all(|r| r.kind != RowKind::Format),
-            "incorrectly marked as format-only: {rows:?}"
+            rows.iter().any(|r| r.kind != RowKind::Format && r.kind != RowKind::Equal),
+            "expected a real content change, all rows: {rows:?}"
+        );
+        // The formatting-only lines ("a," and ")") should be classified as Format.
+        assert!(
+            rows.iter().filter(|r| r.kind == RowKind::Format).count() > 0,
+            "expected some format-only rows, all rows: {rows:?}"
         );
     }
 

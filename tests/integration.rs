@@ -143,3 +143,96 @@ fn mixed_additions_removals_modifications() {
     // "delete_me" → "add_me" is also paired as modified (Myers pairs them).
     assert!(stats.modified >= 1);
 }
+
+#[test]
+fn python_same_code_different_formatting_is_format_only() {
+    let a = r#"def calculate_total(items, tax_rate=0.05, discount=0.1):
+    total = sum(item['price'] for item in items)
+    return (total - discount) * (1 + tax_rate)
+
+shopping_cart = [{'name': 'apple', 'price': 1.0}, {'name': 'banana', 'price': 0.5}]
+print("Total:", calculate_total(shopping_cart))
+"#;
+    let b = r#"def calculate_total(
+    items,
+    tax_rate=0.05,
+    discount=0.1
+):
+    total = sum(
+        item["price"]
+        for item in items
+    )
+    return (total - discount) * (1 + tax_rate)
+
+shopping_cart = [
+    {
+        "name": "apple",
+        "price": 1.0
+    },
+    {
+        "name": "banana",
+        "price": 0.5
+    }
+]
+
+print(
+    "Total:",
+    calculate_total(shopping_cart)
+)
+"#;
+    let (rows, stats) = process_diff(a, b);
+    assert!(
+        stats.format > 0,
+        "expected format-only rows, got stats: {stats:?}, rows: {rows:?}"
+    );
+    assert_eq!(stats.added, 0, "unexpected additions: {stats:?}");
+    assert_eq!(stats.removed, 0, "unexpected removals: {stats:?}");
+    assert_eq!(stats.modified, 0, "unexpected modifications: {stats:?}");
+}
+
+#[test]
+fn formatting_with_one_content_change_shows_only_that_change() {
+    let a = r#"def calculate_total(items, tax_rate=0.05, discount=0.1):
+    total = sum(item['price'] for item in items)
+    return (total - discount) * (1 + tax_rate)
+
+shopping_cart = [{'name': 'apple', 'price': 1.0}, {'name': 'banana', 'price': 0.5}]
+print("Total:", calculate_total(shopping_cart))
+"#;
+    let c = r#"def calculate_total(
+    items,
+    tax_rate=0.05,
+    discount=0.1
+):
+    total = sum(
+        item["price"]
+        for item in items
+    )
+    return (total - discount) * (1 + tax_rate)
+
+shopping_cart = [
+    {
+        "name": "aple",
+        "price": 1.0
+    },
+    {
+        "name": "banana",
+        "price": 0.5
+    }
+]
+
+print(
+    "Total:",
+    calculate_total(shopping_cart)
+)
+"#;
+    let (_, stats) = process_diff(a, c);
+    // Only formatting and the one real change — no spurious additions/removals.
+    assert_eq!(stats.added, 0, "unexpected additions: {stats:?}");
+    assert_eq!(stats.removed, 0, "unexpected removals: {stats:?}");
+    assert_eq!(stats.modified, 1, "expected exactly 1 Modified row: {stats:?}");
+    assert!(
+        stats.format > 0,
+        "expected format-only rows: {stats:?}"
+    );
+}
